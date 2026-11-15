@@ -12,6 +12,8 @@ export interface $ZodCheckDef {
   check: string;
   /** Optional label; `schema.update()` can select the check by it. */
   name?: string | undefined;
+  /** For a refinement on an object: the keys it reads, so pick/omit/partial/extend/merge keep it (pick/omit drop it once one of them is removed) instead of throwing. After partial() those keys may be undefined. */
+  keys?: PropertyKey[] | undefined;
   error?: errors.$ZodErrorMap<never> | undefined;
   /** If true, no later checks will be executed if this check fails. Default `false`. */
   abort?: boolean | undefined;

@@ -757,19 +757,25 @@ export const BIGINT_FORMAT_RANGES: Record<checks.$ZodBigIntFormats, [bigint, big
   uint64: [/* @__PURE__*/ BigInt(0), /* @__PURE__*/ BigInt("18446744073709551615")],
 };
 
+// refinements that declare the object keys they read (`keys`) survive reshaping: kept while all of those keys remain, dropped when pick/omit removes one; any undeclared refinement still makes the method throw
+function keyedChecks(schema: schemas.$ZodObject, message: string, kept?: (key: PropertyKey) => boolean): any[] {
+  const checks = schema._zod.def.checks;
+  if (!checks?.length) return [];
+  if (checks.some((ch) => !ch._zod.def.keys)) throw new Error(message);
+  return kept ? checks.filter((ch) => ch._zod.def.keys!.every(kept)) : checks;
+}
+
 export function pick(schema: schemas.$ZodObject, mask: Record<string, unknown>): any {
   const currDef = schema._zod.def;
-
-  const checks = currDef.checks;
-  const hasChecks = checks && checks.length > 0;
-  if (hasChecks) {
-    throw new Error(".pick() cannot be used on object schemas containing refinements");
-  }
+  const picked = new Set(maskedKeys(schema, mask));
+  const checks = keyedChecks(schema, ".pick() cannot be used on object schemas containing refinements", (k) =>
+    picked.has(k)
+  );
 
   const newShape: Writeable<schemas.$ZodShape> = {};
-  mirrorShape(newShape, schema, maskedKeys(schema, mask));
+  mirrorShape(newShape, schema, [...picked]);
 
-  return clone(schema, mergeDefs(currDef, { shape: newShape, checks: [] })) as any;
+  return clone(schema, mergeDefs(currDef, { shape: newShape, checks })) as any;
 }
 
 // the mask keys that select something, checked against the source's shape without resolving it
@@ -788,14 +794,13 @@ function maskedKeys(schema: schemas.$ZodObject, mask: object): PropertyKey[] {
 
 export function omit(schema: schemas.$ZodObject, mask: object): any {
   const currDef = schema._zod.def;
-
-  const checks = currDef.checks;
-  const hasChecks = checks && checks.length > 0;
-  if (hasChecks) {
-    throw new Error(".omit() cannot be used on object schemas containing refinements");
-  }
-
   const omitted = new Set(maskedKeys(schema, mask));
+  const checks = keyedChecks(
+    schema,
+    ".omit() cannot be used on object schemas containing refinements",
+    (k) => !omitted.has(k)
+  );
+
   const newShape: Writeable<schemas.$ZodShape> = {};
   mirrorShape(
     newShape,
@@ -803,7 +808,7 @@ export function omit(schema: schemas.$ZodObject, mask: object): any {
     Reflect.ownKeys(sourceShape(schema)).filter((key) => !omitted.has(key))
   );
 
-  return clone(schema, mergeDefs(currDef, { shape: newShape, checks: [] }));
+  return clone(schema, mergeDefs(currDef, { shape: newShape, checks }));
 }
 
 export function extend(schema: schemas.$ZodObject, shape: schemas.$ZodShape): any {
@@ -812,7 +817,7 @@ export function extend(schema: schemas.$ZodObject, shape: schemas.$ZodShape): an
   }
 
   const checks = schema._zod.def.checks;
-  const hasChecks = checks && checks.length > 0;
+  const hasChecks = checks?.some((ch) => !ch._zod.def.keys);
   if (hasChecks) {
     // Only throw if new shape overlaps with existing shape. Use getOwnPropertyDescriptor to check key existence without accessing values
     const existingShape = sourceShape(schema);
@@ -845,9 +850,10 @@ export function merge(a: schemas.$ZodObject, b: schemas.$ZodObject): any {
   if (!b?._zod?.def) {
     throw new Error("Invalid input to merge: expected an object schema. To merge a plain shape, use `.extend()`.");
   }
-  if (a._zod.def.checks?.length) {
-    throw new Error(".merge() cannot be used on object schemas containing refinements. Use .safeExtend() instead.");
-  }
+  const aChecks = keyedChecks(
+    a,
+    ".merge() cannot be used on object schemas containing refinements. Use .safeExtend() instead."
+  );
   const newShape: Writeable<schemas.$ZodShape> = {};
   mirrorShape(newShape, a, Reflect.ownKeys(sourceShape(a)));
   mirrorShape(newShape, b, Reflect.ownKeys(sourceShape(b)));
@@ -857,7 +863,7 @@ export function merge(a: schemas.$ZodObject, b: schemas.$ZodObject): any {
     get catchall() {
       return b._zod.def.catchall;
     },
-    checks: b._zod.def.checks ?? [],
+    checks: [...aChecks, ...(b._zod.def.checks ?? [])],
   });
 
   return clone(a, def) as any;
@@ -869,12 +875,7 @@ export function partial(
   mask: object | undefined,
   name = "partial"
 ): any {
-  const currDef = schema._zod.def;
-  const checks = currDef.checks;
-  const hasChecks = checks && checks.length > 0;
-  if (hasChecks) {
-    throw new Error(`.${name}() cannot be used on object schemas containing refinements`);
-  }
+  const checks = keyedChecks(schema, `.${name}() cannot be used on object schemas containing refinements`);
 
   const selected = mask ? new Set(maskedKeys(schema, mask)) : undefined;
   const newShape: Writeable<schemas.$ZodShape> = {};
@@ -886,7 +887,7 @@ export function partial(
       ((value, key) => (selected && !selected.has(key) ? value : new Class({ type: "optional", innerType: value })))
   );
 
-  return clone(schema, mergeDefs(schema._zod.def, { shape: newShape, checks: [] })) as any;
+  return clone(schema, mergeDefs(schema._zod.def, { shape: newShape, checks })) as any;
 }
 
 export function required(
