@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// publishes this fork as @anthonyalayo/zod; consume with "zod": "npm:@anthonyalayo/zod@^4.7.0"
+// publishes this fork as @anthonyalayo/zod; consume with "zod": "npm:@anthonyalayo/zod@^4.7.1"
 // usage: node scripts/release-fork.mjs [--publish] [--auth-type=web]   (default is a dry run; run `nub run build` first)
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const NAME = "@anthonyalayo/zod";
-const VERSION = "4.7.0";
+const VERSION = "4.7.1";
 const REPO = "git+https://github.com/anthonyalayo/zod.git";
 
 const pkgDir = join(new URL("..", import.meta.url).pathname, "packages", "zod");

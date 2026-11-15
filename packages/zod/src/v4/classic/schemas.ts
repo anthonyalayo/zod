@@ -165,7 +165,7 @@ export interface ZodType<
    */
   isNullable(): boolean;
   apply<T, TArgs extends unknown[] = []>(fn: (schema: this, ...args: TArgs) => T, ...args: TArgs): T;
-  /** Returns a copy whose error messages are replaced, keyed by `"path.check"`, `"path.check.value"` or `"path"` for the schema's own type error. */
+  /** Returns a copy whose error messages are replaced, keyed by `"path.check"` (a check's method or `name`), `"path.check.value"` or `"path"` for the schema's own type error. */
   update(messages: ZodUpdateMessages): this;
 }
 
@@ -203,6 +203,7 @@ function _updateMessage(node: core.$ZodType, key: string, segs: string[], error:
 }
 
 function _checkMatches(def: any, name: string, value: string | undefined): boolean {
+  if (def.name !== undefined && def.name === name && value === undefined) return true;
   const kind: string = def.check;
   let names: string[];
   let val: unknown;

@@ -90,3 +90,19 @@ test("keeps metadata and rejects keys that match nothing", () => {
   expect(() => schema.update({ "name.min.1.extra": "x" })).toThrow('cannot resolve "name.min.1.extra"');
   expect(() => schema.update({ "name.min.2": "x" })).toThrow('no "min" check found for "name.min.2"');
 });
+
+test("selects checks by their name label", () => {
+  const schema = z
+    .object({
+      title: z
+        .string()
+        .min(1, { name: "title_length" })
+        .max(100, { name: "title_length" })
+        .refine((s) => s.trim() === s, { name: "title_trimmed" }),
+    })
+    .update({ "title.title_length": "1 to 100 characters", "title.title_trimmed": "no surrounding spaces" });
+
+  expect(messages(schema, { title: "" })).toEqual(["1 to 100 characters"]);
+  expect(messages(schema, { title: ` ${"a".repeat(100)}` })).toEqual(["1 to 100 characters", "no surrounding spaces"]);
+  expect(() => schema.update({ "title.other_name": "x" })).toThrow('no "other_name" check found');
+});
