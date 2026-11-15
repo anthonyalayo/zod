@@ -165,6 +165,62 @@ export interface ZodType<
    */
   isNullable(): boolean;
   apply<T, TArgs extends unknown[] = []>(fn: (schema: this, ...args: TArgs) => T, ...args: TArgs): T;
+  /** Returns a copy whose error messages are replaced, keyed by `"path.check"`, `"path.check.value"` or `"path"` for the schema's own type error. */
+  update(messages: ZodUpdateMessages): this;
+}
+
+export type ZodUpdateMessages = Record<string, string | core.$ZodErrorMap>;
+
+// path segments descend through object shapes, `[]` into array elements, and transparently through wrappers that expose `innerType`; whatever remains selects checks by name and optional value
+function _updateMessage(node: core.$ZodType, key: string, segs: string[], error: core.$ZodErrorMap): core.$ZodType {
+  const def = node._zod.def as any;
+  if (def.innerType)
+    return core.clone(node, { ...def, innerType: _updateMessage(def.innerType, key, segs, error) }, { parent: true });
+
+  const [seg, ...rest] = segs;
+  if (seg !== undefined && def.shape && Object.prototype.hasOwnProperty.call(def.shape, seg)) {
+    return core.clone(
+      node,
+      { ...def, shape: { ...def.shape, [seg]: _updateMessage(def.shape[seg], key, rest, error) } },
+      { parent: true }
+    );
+  }
+  if (seg === "[]" && def.element)
+    return core.clone(node, { ...def, element: _updateMessage(def.element, key, rest, error) }, { parent: true });
+  if (seg === undefined) return core.clone(node, { ...def, error }, { parent: true });
+  if (rest.length > 1) throw new Error(`update(): cannot resolve "${key}"`);
+  // schemas that act as their own check, e.g. z.int() or z.email()
+  if (def.check && _checkMatches(def, seg, rest[0])) return core.clone(node, { ...def, error }, { parent: true });
+
+  let matched = false;
+  const nextChecks = (def.checks ?? []).map((ch: core.$ZodCheck) => {
+    if (!_checkMatches(ch._zod.def as any, seg, rest[0])) return ch;
+    matched = true;
+    return core.clone(ch as any, { ...ch._zod.def, error } as any);
+  });
+  if (!matched) throw new Error(`update(): no "${seg}" check found for "${key}"`);
+  return core.clone(node, { ...def, checks: nextChecks }, { parent: true });
+}
+
+function _checkMatches(def: any, name: string, value: string | undefined): boolean {
+  const kind: string = def.check;
+  let names: string[];
+  let val: unknown;
+  if (kind === "min_length" || kind === "min_size") [names, val] = [["min"], def.minimum];
+  else if (kind === "max_length" || kind === "max_size") [names, val] = [["max"], def.maximum];
+  else if (kind === "length_equals") [names, val] = [["length"], def.length];
+  else if (kind === "size_equals") [names, val] = [["size"], def.size];
+  else if (kind === "greater_than") [names, val] = [def.inclusive ? ["gte", "min"] : ["gt"], def.value];
+  else if (kind === "less_than") [names, val] = [def.inclusive ? ["lte", "max"] : ["lt"], def.value];
+  else if (kind === "multiple_of") [names, val] = [["multipleOf", "step"], def.value];
+  else if (kind === "string_format" || kind === "number_format" || kind === "bigint_format") {
+    names = [def.format, def.format.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase())];
+    if (kind !== "string_format" && def.format.includes("int")) names.push("int");
+  } else if (kind === "custom") names = ["refine"];
+  else names = [];
+  names.push(kind);
+  if (!names.includes(name)) return false;
+  return value === undefined || ((typeof val === "number" || typeof val === "bigint") && String(val) === value);
 }
 
 export interface _ZodType<out Internals extends core.$ZodTypeInternals = core.$ZodTypeInternals>
@@ -280,6 +336,19 @@ export const ZodType: core.$constructor<ZodType> = /*@__PURE__*/ core.$construct
     },
     apply(fn, ...args) {
       return args.length === 0 ? fn(this) : fn(this, ...args);
+    },
+    update(messages) {
+      let out: core.$ZodType = this;
+      for (const key in messages) {
+        const message = messages[key]!;
+        out = _updateMessage(
+          out,
+          key,
+          key.split("."),
+          (typeof message === "string" ? () => message : message) as core.$ZodErrorMap
+        );
+      }
+      return out as any;
     },
     // Overrides core's `~standard` to add `jsonSchema`. Must stay a prototype entry: redefining it per instance demotes instances to dictionary mode.
     get "~standard"(): ZodType["~standard"] {
