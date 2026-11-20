@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 const NAME = "@anthonyalayo/zod";
 const VERSION = "4.7.2";
-const REPO = "git+https://github.com/anthonyalayo/zod.git";
+const REPO = "git+https://github.com/anthonyyya/zod.git";
 
 const pkgDir = join(new URL("..", import.meta.url).pathname, "packages", "zod");
 if (!existsSync(join(pkgDir, "v4", "index.js"))) throw new Error("packages/zod is not built, run `nub run build` first");
